@@ -6,7 +6,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#define LEVEL                10
+#define LEVEL                4
 #define MAX_RECORDS_PER_NODE (LEVEL - 1)
 
 typedef enum {
@@ -44,5 +44,7 @@ extern uint64_t BPlusTree_Select(uint64_t key);
 extern uint64_t *BPlusTree_Select_Range(uint64_t key, uint64_t range,uint64_t *length);
 extern uint64_t BPlusTree_Modify(uint64_t key, uint64_t newValue);
 extern uint64_t BPlusTree_Delete(uint64_t key);
+
+extern void BPlusTree_PrintTree();
 
 #endif
