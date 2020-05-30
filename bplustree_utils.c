@@ -43,3 +43,21 @@ void PrintAllNodes(BPlusTreeNode *root) {
         }
     }
 }
+
+static BPlusTreeNode *CreateBuffer() {
+    BPlusTreeNode *buffer = (BPlusTreeNode *)malloc(sizeof(BPlusTreeNode));
+    buffer->isLeaf        = false;
+    buffer->isRoot        = false;
+    buffer->keys          = (uint64_t *)malloc(sizeof(uint64_t) * LEVEL);
+    buffer->values        = (uint64_t *)malloc(sizeof(uint64_t) * LEVEL);
+    buffer->childs        = (BPlusTreeNode **)malloc(sizeof(BPlusTreeNode *) * LEVEL);
+    buffer->keyNum        = 0;
+    buffer->next          = NULL;
+    buffer->prev          = NULL;
+    buffer->parent        = NULL;
+    return buffer;
+}
+
+static void DestroyBuffer(BPlusTreeNode *buffer) {
+    FreeNode(buffer);
+}

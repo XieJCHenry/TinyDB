@@ -42,7 +42,7 @@ extern void BPlusTree_Destroy();
 extern void BPlusTree_Insert(uint64_t key, uint64_t value);
 extern uint64_t BPlusTree_Select(uint64_t key);
 extern uint64_t *BPlusTree_Select_Range(uint64_t key, uint64_t range,uint64_t *length);
-extern uint64_t BPlusTree_Modify(uint64_t key, uint64_t newValue);
+extern uint64_t BPlusTree_Update(uint64_t key, uint64_t newValue);
 extern uint64_t BPlusTree_Delete(uint64_t key);
 
 extern void BPlusTree_PrintTree();
