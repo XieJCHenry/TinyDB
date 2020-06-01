@@ -6,7 +6,7 @@
 void PrintNode(BPlusTreeNode *curNode);
 void PrintAllNodes(BPlusTreeNode *root);
 
-static BPlusTreeNode *CreateBuffer();
-static void DestroyBuffer(BPlusTreeNode *buffer);
+BPlusTreeNode *CreateBuffer();
+void DestroyBuffer(BPlusTreeNode *buffer);
 
 #endif

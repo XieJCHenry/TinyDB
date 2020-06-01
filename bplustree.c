@@ -231,60 +231,6 @@ static inline void InsertAtParentNode(BPlusTreeNode *parent, BPlusTreeNode *chil
     parent->keyNum++;
 }
 
-// static void SplitNode(BPlusTreeNode *node, uint64_t key, BPlusTreeNode *child) {
-//     if (node == NULL) {
-//         return;
-//     }
-//     if (node->keyNum == MAX_RECORDS_PER_NODE) {
-//         // Split current node
-//         // create buffer
-//         BPlusTreeNode *buffer = CreateBuffer();
-//         CopyRecords(node, buffer, 0, node->keyNum);
-//         buffer->keyNum = node->keyNum;
-//         uint64_t i;
-//         for (i = buffer->keyNum; i > 0 && buffer->keys[i - 1] > key; i--) {
-//             buffer->keys[i]       = buffer->keys[i - 1];
-//             buffer->childs[i + 1] = buffer->childs[i];
-//         }
-//         buffer->keys[i]       = key;
-//         buffer->childs[i + 1] = child;
-//         buffer->keyNum++;
-
-//         // create rChild
-//         BPlusTreeNode *rChild = New_BPlusTreeNode(InternalNode);
-//         // copy data from buffer to rChild
-//         uint64_t j = buffer->keyNum >> 1;
-//         CopyRecords(buffer, rChild, j + 1, buffer->keyNum - j - 1);
-//         rChild->keyNum = buffer->keyNum - j - 1;
-//         node->keyNum -= (j - 1);
-//         rChild->childs[rChild->keyNum] = child;
-//         child->parent                  = rChild;
-
-//         // create new parent
-//         NodeType type        = node->isRoot ? RootNode : InternalNode;
-//         BPlusTreeNode *nRoot = New_BPlusTreeNode(type);
-//         nRoot->keys[0]       = buffer->keys[j];
-
-//         // update pointer
-//         if (node->isRoot) {
-//             node->isRoot     = false;
-//             nRoot->isRoot    = true;
-//             nRoot->childs[0] = node;
-//             nRoot->childs[1] = rChild;
-//             nRoot->keyNum    = 1;
-//             Root             = nRoot;
-//         } else {
-//             // BPlusTree_Insert()
-//         }
-
-//         // destroy buffer
-//         DestroyBuffer(buffer);
-//         // determin if node is Root
-//     } else {
-//         SplitNode(node->parent, key, child);
-//     }
-// }
-
 /* Split leaf node to leaf and nNode, distribute data, and update 'parent' field */
 static void SplitLeafAndInsert(BPlusTreeNode *leaf, uint64_t key, uint64_t value) {
     BPlusTreeNode *buffer = CreateBuffer();
@@ -309,7 +255,8 @@ static void SplitLeafAndInsert(BPlusTreeNode *leaf, uint64_t key, uint64_t value
 static void SplitParentAndInsert(BPlusTreeNode *parent, BPlusTreeNode *child) {
     BPlusTreeNode *buffer = CreateBuffer();
     CopyRecords(parent, buffer, 0, parent->keyNum);
-    InsertAtParentNode(buffer, child);
+    if (child != NULL)
+        InsertAtParentNode(buffer, child);
 
     // create rNode
     BPlusTreeNode *rNode = New_BPlusTreeNode(InternalNode);
@@ -338,21 +285,15 @@ static void SplitParentAndInsert(BPlusTreeNode *parent, BPlusTreeNode *child) {
     }
 }
 
-/* node : which keyNum reach the limit of MAX_RECORDS_PER_NODE */
-static void SplitNode(BPlusTreeNode *node, uint64_t key, uint64_t value) {
-    if (node->parent->keyNum < MAX_RECORDS_PER_NODE) {
-        SplitLeafAndInsert(node, key, value);
-    } else {
-        SplitParentAndInsert(node->parent, node);
-    }
-}
 
 static void InsertImplement(BPlusTreeNode *node, uint64_t key, uint64_t value) {
     if (node->keyNum < MAX_RECORDS_PER_NODE) {
         InsertAtLeafNode(node, key, value);
     } else {
         // SplitNode(node, key, value);
-        if (node->parent->keyNum < MAX_RECORDS_PER_NODE) {
+        if (node->isRoot) {
+            SplitParentAndInsert(node, NULL);
+        } else if (node->parent->keyNum < MAX_RECORDS_PER_NODE) {
             SplitLeafAndInsert(node, key, value);
         } else {
             SplitParentAndInsert(node->parent, node);

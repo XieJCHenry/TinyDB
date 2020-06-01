@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 #include "bplustree.h"
 
@@ -44,7 +45,7 @@ void PrintAllNodes(BPlusTreeNode *root) {
     }
 }
 
-static BPlusTreeNode *CreateBuffer() {
+BPlusTreeNode *CreateBuffer() {
     BPlusTreeNode *buffer = (BPlusTreeNode *)malloc(sizeof(BPlusTreeNode));
     buffer->isLeaf        = false;
     buffer->isRoot        = false;
@@ -58,6 +59,25 @@ static BPlusTreeNode *CreateBuffer() {
     return buffer;
 }
 
-static void DestroyBuffer(BPlusTreeNode *buffer) {
-    FreeNode(buffer);
+void DestroyBuffer(BPlusTreeNode *buffer) {
+    if (buffer == NULL) {
+        return;
+    }
+    if (buffer->childs != NULL) {
+        free(buffer->childs);
+    }
+    if (buffer->keys != NULL) {
+        free(buffer->keys);
+    }
+    if (buffer->values != NULL) {
+        free(buffer->values);
+    }
+    free(buffer);
+    buffer->parent = NULL;
+    buffer->prev   = NULL;
+    buffer->next   = NULL;
+    buffer->childs = NULL;
+    buffer->keys   = NULL;
+    buffer->values = NULL;
+    buffer         = NULL;
 }
