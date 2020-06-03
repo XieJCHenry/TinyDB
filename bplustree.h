@@ -3,10 +3,20 @@
 #ifndef BPLUSTREE_H
 #define BPLUSTREE_H
 
-#include <stdint.h>
 #include <stdbool.h>
+#include <stdint.h>
 
-#define LEVEL                4
+// #define DEBUG 0
+
+// #ifdef DEBUG
+// #define DEBUG_TEST 1
+// #else
+// #define DEBUG_TEST 0
+// #endif
+
+
+
+#define LEVEL                6  // cannot be to large, otherwise system cannot malloc enough memory space.
 #define MAX_RECORDS_PER_NODE (LEVEL - 1)
 
 typedef enum {
@@ -41,10 +51,11 @@ extern void BPlusTree_Init();
 extern void BPlusTree_Destroy();
 extern void BPlusTree_Insert(uint64_t key, uint64_t value);
 extern uint64_t BPlusTree_Select(uint64_t key);
-extern uint64_t *BPlusTree_Select_Range(uint64_t key, uint64_t range,uint64_t *length);
+extern uint64_t *BPlusTree_Select_Range(uint64_t key, uint64_t range, uint64_t *length);
 extern uint64_t BPlusTree_Update(uint64_t key, uint64_t newValue);
 extern uint64_t BPlusTree_Delete(uint64_t key);
 
 extern void BPlusTree_PrintTree();
-
+extern void BPlusTree_AllRecords();
+extern uint64_t BPlusTree_AllNodes();
 #endif

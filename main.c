@@ -1,39 +1,57 @@
+#include <stdio.h>
+#include <time.h>
+#include <unistd.h>
+
 #include "./bplustree.h"
+
+uint64_t num = 1000 * 10000;
 
 void TestInsert();
 
 int main(int argc, char* argv[]) {
+    clock_t start, end;
     BPlusTree_Init();
+    start = clock();
     TestInsert();
-    BPlusTree_PrintTree();
+    end = clock();
+    printf("Insert %ld records takes %f seconds.\n", num, (double)(end - start) / CLOCKS_PER_SEC);
+    // pause();
+    start = clock();
     BPlusTree_Destroy();
+    end = clock();
+    printf("Free %ld nodes takes %f seconds.\n", BPlusTree_AllNodes(), (double)(end - start) / CLOCKS_PER_SEC);
+
     return 0;
 }
 
+/**
+ * B+Tree has been initialized success.
+Insert 100000 records takes 0.010000 seconds.
+B+Tree has been destroyed.
+Free 100000 nodes takes 0.010000 seconds.
+ * 
+ * B+Tree has been initialized success.
+Insert 1000000 records takes 0.220000 seconds.
+B+Tree has been destroyed.
+Free 1000000 nodes takes 0.040000 seconds.
+ * 
+ * 
+ * B+Tree has been initialized success.
+Insert 1000000 records takes 0.210000 seconds.
+B+Tree has been destroyed.
+Free 1000000 nodes takes 0.050000 seconds.
+ * 
+ * 
+ * B+Tree has been initialized success.
+Insert 10000000 records takes 2.590000 seconds.
+B+Tree has been destroyed.
+Free 10000000 nodes takes 0.440000 seconds.
+ * 
+ */
 void TestInsert() {
-    BPlusTree_Insert(1, 1);
-    // BPlusTree_PrintTree();
-    BPlusTree_Insert(2, 2);
-    // BPlusTree_PrintTree();
-    BPlusTree_Insert(3, 3);
-    // BPlusTree_PrintTree();
-    BPlusTree_Insert(4, 4);
-    // BPlusTree_PrintTree();
-    BPlusTree_Insert(5, 5);
-    // BPlusTree_PrintTree();
-    BPlusTree_Insert(6, 6);
-    // BPlusTree_PrintTree();
-    BPlusTree_Insert(7, 7);
-    // BPlusTree_PrintTree();
-    BPlusTree_Insert(8, 8);
-    // BPlusTree_PrintTree();
-    BPlusTree_Insert(9, 9);
-    // BPlusTree_PrintTree();
-    BPlusTree_Insert(10, 10);
-    BPlusTree_PrintTree();
-   // ERROR: i = 9
-    // for (int i = 1; i <= 10; i++) {
-    //     BPlusTree_Insert(i, i);
-    //     BPlusTree_PrintTree();
-    // }
+    uint64_t i;
+    for (i = 1; i <= num; i++) {
+        BPlusTree_Insert(i, i);
+        // BPlusTree_AllRecords();
+    }
 }
