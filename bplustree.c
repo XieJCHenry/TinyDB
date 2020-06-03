@@ -1,10 +1,8 @@
 #include "bplustree.h"
 
-#include <assert.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 
 #include "bplustree_utils.h"
 
@@ -24,8 +22,8 @@ static BPlusTreeNode *New_BPlusTreeNode(NodeType type) {
     node->next   = NULL;
     node->prev   = NULL;
     if (type == LeafNode) {
-        node->keys   = (uint64_t *)malloc(sizeof(uint64_t) * LEVEL);  // allocate one more space
-        node->values = (uint64_t *)malloc(sizeof(uint64_t) * LEVEL);  // allocate one more space
+        node->keys   = (uint64_t *)malloc(sizeof(uint64_t) * MAX_RECORDS_PER_NODE);
+        node->values = (uint64_t *)malloc(sizeof(uint64_t) * MAX_RECORDS_PER_NODE);
         if (node->keys == NULL || node->values == NULL) {
             if (node->keys != NULL) {
                 free(node->keys);
@@ -40,8 +38,8 @@ static BPlusTreeNode *New_BPlusTreeNode(NodeType type) {
         node->isLeaf = true;
         node->isRoot = false;
     } else if (type == InternalNode || type == RootNode) {
-        node->keys   = (uint64_t *)malloc(sizeof(uint64_t) * LEVEL);
-        node->childs = (BPlusTreeNode **)malloc(sizeof(BPlusTreeNode *) * (LEVEL+1));
+        node->keys   = (uint64_t *)malloc(sizeof(uint64_t) * MAX_RECORDS_PER_NODE);
+        node->childs = (BPlusTreeNode **)malloc(sizeof(BPlusTreeNode *) * LEVEL);
         if (node->keys == NULL || node->childs == NULL) {
             if (node->keys != NULL) {
                 free(node->keys);
@@ -59,6 +57,19 @@ static BPlusTreeNode *New_BPlusTreeNode(NodeType type) {
     return node;
 }
 
+// static inline uint64_t BinarySearch(BPlusTreeNode *curNode, uint64_t key) {
+//     uint64_t l = 0, r = curNode->keyNum;
+//     if (key < curNode->keys[l]) return l;
+//     if (curNode->keys[r - 1] <= key) return r - 1;
+//     while (l < r - 1) {
+//         uint64_t mid = l + ((r - l) >> 1);
+//         if (curNode->keys[mid] > key)
+//             r = mid;
+//         else
+//             l = mid;
+//     }
+//     return l;
+// }
 
 /* Search the index of key in curNode */
 static inline uint64_t BinarySearchKey(BPlusTreeNode *curNode, uint64_t key) {
@@ -93,13 +104,12 @@ static inline uint64_t BinarySearchNode(BPlusTreeNode *curNode, uint64_t key) {
 }
 
 /* Search a leaf node which contains the specified key */
-static BPlusTreeNode *LeafNodeSearch(uint64_t key, uint64_t *index) {
+static BPlusTreeNode *LeafNodeSearch(uint64_t key) {
     if (Root == NULL) {
         printf("Root of B+tree is null.\n");
         exit(EXIT_FAILURE);
     }
     BPlusTreeNode *curNode = Root;
-    *index                 = 0;
     while (1) {
         if (curNode->isLeaf) {
             break;
@@ -109,7 +119,6 @@ static BPlusTreeNode *LeafNodeSearch(uint64_t key, uint64_t *index) {
         } else {
             uint64_t i = BinarySearchNode(curNode, key);
             curNode    = curNode->childs[i];
-            *index     = i;
         }
     }
     return curNode;
@@ -138,7 +147,6 @@ static inline void FreeNode(BPlusTreeNode *node) {
     node         = NULL;
 }
 
-/* TODO: Error: Double Free */
 static void Destroy_Tree(BPlusTreeNode *root) {
     if (root == NULL) {
         return;
@@ -161,79 +169,80 @@ static void LinkAfter(BPlusTreeNode *pos, BPlusTreeNode *node) {
     node->prev = pos;
 }
 
-
-/**
- * On the whole, the specified implementation of B+tree includes the following requirements and steps:
- * 1. Requirements:
- * a. The key-value space allocated by each node is N, which is the order of B+tree.
- * b. Each node holds a pointer to its parent
- * 2. Steps:
- * a. Check the keyNum after an insert operation and determine whether to split.
- * b. I prefer iteration to update parent node from bottom to up.
- * @Date: 2020-6-3
- */
-static void _BPlusTree_Insert(BPlusTreeNode *node, uint64_t key, uint64_t value) {
+/* Copy keys, values(if src is leaf), childs from src to dest, update dest->keyNum */
+static inline void CopyRecords(BPlusTreeNode *src, BPlusTreeNode *dest, uint64_t from, uint64_t range) {
     uint64_t i;
-    for (i = node->keyNum; i > 0 && node->keys[i] > key; i--) {
+    for (i = 0; i < range; i++) {
+        dest->keys[i] = src->keys[i + from];
+        if (src->isLeaf && dest->isLeaf) {
+            dest->values[i] = src->values[i + from];
+        } else {
+            dest->childs[i]         = src->childs[i + from];
+            dest->childs[i]->parent = dest;
+        }
+    }
+    dest->keyNum = range;
+}
+
+/* Insert key-value into node only when its keyNum < MAX_RECORDS_PER_NODE */
+static void InsertAtLeafNode(BPlusTreeNode *node, uint64_t key, uint64_t value) {
+    uint64_t i;
+    for (i = node->keyNum; i > 0 && node->keys[i - 1] > key; i--) {
         node->keys[i]   = node->keys[i - 1];
         node->values[i] = node->values[i - 1];
     }
-    node->keys[i]   = key;
-    node->values[i] = value;
+    node->keys[i - 1]   = key;
+    node->values[i - 1] = value;
     node->keyNum++;
+}
 
-    BPlusTreeNode *rNode = NULL, *parent = NULL;
-    uint64_t temp, mid                   = -1;
-    while (node->keyNum > MAX_RECORDS_PER_NODE) {
-        NodeType type = node->isLeaf ? LeafNode : InternalNode;
-        rNode         = New_BPlusTreeNode(type);
-        assert(rNode != NULL);
+static void InsertAtParentNode(BPlusTreeNode *node, uint64_t key, BPlusTreeNode *child) {
+    BPlusTreeNode *parent = node->isRoot ? node : node->parent;
+    uint64_t i;
+    for (i = parent->keyNum; i > 0 && parent->keys[i - 1] > key; i--) {
+        parent->keys[i]       = parent->keys[i - 1];
+        parent->childs[i + 1] = parent->childs[i];
+    }
+    parent->keys[i - 1] = key;
+    parent->childs[i]   = child;
+    parent->keyNum++;
+}
 
-        mid  = node->keyNum >> 1; // node->keyNum = MAX_RECORDS_PER_NODE + 1 right now
-        temp = node->keys[mid];
-        if (node->isLeaf) {
-            rNode->keyNum = node->keyNum - mid;
-            memcpy(rNode->keys, node->keys + mid, sizeof(uint64_t) * (rNode->keyNum));
-            memcpy(rNode->values, node->values + mid, sizeof(uint64_t) * (rNode->keyNum));
-            LinkAfter(node, rNode);
-        } else {
-            rNode->keyNum = node->keyNum - mid - 1;
-            memcpy(rNode->keys, node->keys + mid + 1, sizeof(uint64_t) * (rNode->keyNum));
-            memcpy(rNode->childs, node->childs + mid + 1, sizeof(BPlusTreeNode) * (node->keyNum - mid));
-            for (i = 0; i <= rNode->keyNum; i++) {
-                rNode->childs[i]->parent = rNode;
-            }
-        }
-        node->keyNum = mid;
+static void SplitThenInsert(BPlusTreeNode *node, uint64_t key, BPlusTreeNode *child) {
+    if (node->isRoot) {  // node is both root and leaf
+        Root            = New_BPlusTreeNode(RootNode);
+        Root->keyNum    = 1;
+        Root->keys[0]   = key;
+        Root->childs[0] = node;
+        Root->childs[1] = child;
+        node->isRoot    = false;
+        node->parent = child->parent = Root;
+        return;
+    } else {
+        InsertAtParentNode(node, key, child);
+        LinkAfter(node, child);
+    }
 
-        parent = node->parent;
-        if (parent == NULL) { // node is root
-            Root            = New_BPlusTreeNode(RootNode);
-            Root->childs[0] = node;
-            node->parent    = Root;
-            rNode->parent   = Root;
-            node->isRoot    = false;
-            parent          = Root;
-            // parent->childs[0] = node;
-            // node->parent      = parent;
-            // rNode->parent     = parent;
-        }
-        // update the right keys and childs of parent
-        for (i = parent->keyNum; i > 0 && parent->keys[i - 1] > temp; i--) {
-            parent->keys[i]       = parent->keys[i - 1];
-            parent->childs[i + 1] = parent->childs[i];
-        }
-        parent->keys[i]       = temp;
-        parent->childs[i + 1] = rNode;
-        parent->keyNum++;
+    BPlusTreeNode *parent = node->parent;
+    if (parent->keyNum < MAX_RECORDS_PER_NODE) {
+        InsertAtParentNode(node, key, child);
+    } else {
+        BPlusTreeNode *buffer = CreateBuffer();
+        CopyRecords(parent, buffer, 0, parent->keyNum);
+        InsertAtParentNode(buffer, key, child);
 
-        rNode->parent = parent;
-        node          = parent; // bottom-up update
+        BPlusTreeNode *rChild = New_BPlusTreeNode(InternalNode);
+        uint64_t mid          = buffer->keyNum >> 1;
+        CopyRecords(buffer, rChild, mid, buffer->keyNum - mid);
+        parent->keyNum -= (mid - 1);
+        DestroyBuffer(buffer);
+
+        SplitThenInsert(parent, rChild->keys[0], rChild);
     }
 }
 
 /*=======================================================================*/
-/* Do not Allow duplicated key-value pair in b+tree */
+/* Allow duplicated key-value pair in b+tree */
 /**
  * Check node->keyNum after executing insert operation every time.
  * Conditions:
@@ -241,26 +250,30 @@ static void _BPlusTree_Insert(BPlusTreeNode *node, uint64_t key, uint64_t value)
  *      Con2: leaf is full, leaf->parent is not full, split leaf then insert key in its parent 
  *      Con3: leaf is full and leaf->parent is also full, split leaf->parent recursively
  */
+// WRONG:
 extern void BPlusTree_Insert(uint64_t key, uint64_t value) {
-    if (Root == NULL) {
-        BPlusTree_Init();
+    BPlusTreeNode *leaf = LeafNodeSearch(key);
+    if (leaf->keyNum < MAX_RECORDS_PER_NODE) {
+        InsertAtLeafNode(leaf, key, value);
+    } else {
+        BPlusTreeNode *buffer = CreateBuffer();
+        buffer->isLeaf        = true;
+        CopyRecords(leaf, buffer, 0, leaf->keyNum);
+        InsertAtLeafNode(buffer, key, value);
+
+        BPlusTreeNode *rNode = New_BPlusTreeNode(LeafNode);
+        uint64_t mid         = buffer->keyNum >> 1;
+        CopyRecords(buffer, rNode, mid, buffer->keyNum - mid);
+        leaf->keyNum -= (mid - 1);
+
+        DestroyBuffer(buffer);
+        SplitThenInsert(leaf, rNode->keys[0], rNode);
     }
-    uint64_t index      = -1;
-    BPlusTreeNode *node = LeafNodeSearch(key, &index);
-    if (index != -1) {
-        if (node->values[index] == value) {
-            printf("Key = %ld is already existed.\n", key);
-            return;
-        }
-    }
-    _BPlusTree_Insert(node, key, value);
 }
 
-/*=======================================================================*/
-
 extern uint64_t BPlusTree_Select(uint64_t key) {
-    uint64_t i          = -1;
-    BPlusTreeNode *leaf = LeafNodeSearch(key, &i);
+    BPlusTreeNode *leaf = LeafNodeSearch(key);
+    uint64_t i          = BinarySearchKey(leaf, key);
     if (leaf->keys[i] == key)
         return leaf->values[i];
     else {
@@ -270,8 +283,8 @@ extern uint64_t BPlusTree_Select(uint64_t key) {
 }
 
 extern uint64_t *BPlusTree_Select_Range(uint64_t key, uint64_t range, uint64_t *length) {
-    uint64_t i          = -1;
-    BPlusTreeNode *leaf = LeafNodeSearch(key, &i);
+    BPlusTreeNode *leaf = LeafNodeSearch(key);
+    uint64_t i          = BinarySearchKey(leaf, key);
     if (leaf->keys[i] != key) {
         printf("Key = %ld doesn't exist in the B+Tree.\n", key);
     }

@@ -5,7 +5,8 @@ void TestInsert();
 int main(int argc, char* argv[]) {
     BPlusTree_Init();
     TestInsert();
-    // BPlusTree_Destroy();
+    BPlusTree_PrintTree();
+    BPlusTree_Destroy();
     return 0;
 }
 
