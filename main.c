@@ -1,57 +1,123 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <time.h>
 #include <unistd.h>
 
 #include "./bplustree.h"
+#include "utils/arutls.h"
 
-uint64_t num = 1000 * 10000;
+/*=========================*/
 
+#define UNIT_TEST
+#define RANDOM_INPUT
+
+#ifdef UNIT_TEST
+// #define TEST_INSERT
+#define TEST_DELETE
+#endif
+
+/*=========================*/
+
+#ifdef UNIT_TEST
+double FunctionTimeCost(uint64_t times, void (*f)(uint64_t t2));
+double VoidFunctionTimeCost(void (*f)(void));
+#endif
 void TestInsert();
+void TestDelete();
 
 int main(int argc, char* argv[]) {
-    clock_t start, end;
-    BPlusTree_Init();
-    start = clock();
-    TestInsert();
-    end = clock();
-    printf("Insert %ld records takes %f seconds.\n", num, (double)(end - start) / CLOCKS_PER_SEC);
-    // pause();
-    start = clock();
-    BPlusTree_Destroy();
-    end = clock();
-    printf("Free %ld nodes takes %f seconds.\n", BPlusTree_AllNodes(), (double)(end - start) / CLOCKS_PER_SEC);
-
+    TestDelete();
+    // TestInsert();
     return 0;
 }
 
-/**
- * B+Tree has been initialized success.
-Insert 100000 records takes 0.010000 seconds.
-B+Tree has been destroyed.
-Free 100000 nodes takes 0.010000 seconds.
- * 
- * B+Tree has been initialized success.
-Insert 1000000 records takes 0.220000 seconds.
-B+Tree has been destroyed.
-Free 1000000 nodes takes 0.040000 seconds.
- * 
- * 
- * B+Tree has been initialized success.
-Insert 1000000 records takes 0.210000 seconds.
-B+Tree has been destroyed.
-Free 1000000 nodes takes 0.050000 seconds.
- * 
- * 
- * B+Tree has been initialized success.
-Insert 10000000 records takes 2.590000 seconds.
-B+Tree has been destroyed.
-Free 10000000 nodes takes 0.440000 seconds.
- * 
- */
-void TestInsert() {
+#ifdef TEST_DELETE
+void TestDelete() {
+    printf("============Starting Unit Test: TestDelete============\n");
+    uint64_t low, high, length;
+    low    = 1;
+    high   = 101;
+    length = high - low;
+    uint64_t *keys, *values;
+#ifdef RANDOM_INPUT
+    keys   = Array_Rands_Distinct(low, high, length);
+    values = Array_Rands_Distinct(low, high, length);
+#else
+    keys   = Array_Fill_Range(low, high);
+    values = Array_Fill_Range(low, high);
+    Array_Reverse(keys, length);
+    Array_Reverse(values, length);
+#endif
+
+    Array_Print(keys, length);
+    Array_Print(values, length);
+
+    BPlusTree_Init();
+
     uint64_t i;
-    for (i = 1; i <= num; i++) {
-        BPlusTree_Insert(i, i);
-        // BPlusTree_AllRecords();
+    for (i = 0; i < length; i++) {
+        BPlusTree_Insert(keys[i], values[i]);
     }
+
+    BPlusTree_PrintTree();
+
+    printf("======================== Delete ========================\n");
+
+    // for (i = 0; i < length; i++) {
+    //     BPlusTree_Delete(i + low);
+    //     // if (i % 10 == 0) {
+    //         BPlusTree_PrintTree();
+    //     // }
+    // }
+    for (i = 0; i < length; i++) {
+        // BPlusTree_Delete(keys[i]);
+        BPlusTree_Delete(i + low);
+        BPlusTree_PrintTree();
+    }
+
+    BPlusTree_Destroy();
+    free(keys);
+    free(values);
+    printf("============Exit Unit Test: TestDelete============\n");
+}
+#endif
+
+#ifdef TEST_INSERT
+void TestInsert() {
+    printf("============Starting Unit Test: TestInsert============\n");
+    uint64_t low, high, length;
+    low              = 1;
+    high             = 101;
+    length           = high - low;
+    uint64_t* keys   = Array_Rands_Distinct(low, high, length);
+    uint64_t* values = Array_Rands_Distinct(low, high, length);
+
+    Array_Print(keys, length);
+    Array_Print(values, length);
+
+    BPlusTree_Init();
+
+    uint64_t i;
+    for (i = 0; i < length; i++) {
+        BPlusTree_Insert(keys[i], values[i]);
+        printf("insert: %ld\n", keys[i]);
+        BPlusTree_PrintTree();
+    }
+}
+#endif
+
+double FunctionTimeCost(uint64_t times, void (*f)(uint64_t t2)) {
+    clock_t start, end;
+    start = clock();
+    f(times);
+    end = clock();
+    return (double)(end - start) / CLOCKS_PER_SEC;
+}
+
+double VoidFunctionTimeCost(void (*f)(void)) {
+    clock_t start, end;
+    start = clock();
+    f();
+    end = clock();
+    return (double)(end - start) / CLOCKS_PER_SEC;
 }

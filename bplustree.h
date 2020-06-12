@@ -6,18 +6,16 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-// #define DEBUG 0
+#define DEBUG 1
 
-// #ifdef DEBUG
-// #define DEBUG_TEST 1
-// #else
-// #define DEBUG_TEST 0
-// #endif
+#ifdef DEBUG
+#define DEBUG_TEST 1
+#else
+#define DEBUG_TEST 0
+#endif
 
-
-
-#define LEVEL                6  // cannot be to large, otherwise system cannot malloc enough memory space.
-#define MAX_RECORDS_PER_NODE (LEVEL - 1)
+#define ORDER 11
+#define MAX_RECORDS_PER_NODE (ORDER - 1)
 
 typedef enum {
     LeafNode,
@@ -56,6 +54,7 @@ extern uint64_t BPlusTree_Update(uint64_t key, uint64_t newValue);
 extern uint64_t BPlusTree_Delete(uint64_t key);
 
 extern void BPlusTree_PrintTree();
-extern void BPlusTree_AllRecords();
+extern uint64_t BPlusTree_AllRecords();
 extern uint64_t BPlusTree_AllNodes();
+extern uint64_t BPlusTree_Height();
 #endif
