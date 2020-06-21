@@ -1,20 +1,13 @@
 /* Simple Implementation of B plus Tree -- all in memory */
 
-#ifndef BPLUSTREE_H
-#define BPLUSTREE_H
+#ifndef BPTREE_BPLUSTREE_H
+#define BPTREE_BPLUSTREE_H
 
 #include <stdbool.h>
 #include <stdint.h>
+#include "../includes/global.h"
 
-#define DEBUG 1
-
-#ifdef DEBUG
-#define DEBUG_TEST 1
-#else
-#define DEBUG_TEST 0
-#endif
-
-#define ORDER 11
+#define ORDER 101
 #define MAX_RECORDS_PER_NODE (ORDER - 1)
 
 typedef enum {
@@ -25,7 +18,7 @@ typedef enum {
 
 typedef struct t_record {
     uint64_t key;
-    uint64_t value;
+    void *value;
 } Record;
 
 typedef struct bplustree_node {
@@ -43,6 +36,7 @@ typedef struct bplustree_node {
 // typedef struct bplustree {
 //     BPlusTreeNode *root;
 //     BPlusTreeNode *smallestNode;
+//     uint64_t order;
 // } BPlusTree;
 
 extern void BPlusTree_Init();

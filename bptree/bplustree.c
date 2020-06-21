@@ -180,7 +180,7 @@ static inline uint64_t BinarySearchNode(BPlusTreeNode *curNode, uint64_t key) {
     if (key <= curNode->keys[l])
         return l;
     if (key >= curNode->keys[r - 1])
-        return r;  // remember that: childs is always one more than keys
+        return r;  // childs is always one more than keys
     while (l < r) {
         uint64_t mid = l + (r - l) / 2;
         if (curNode->keys[mid] == key) {
@@ -195,7 +195,7 @@ static inline uint64_t BinarySearchNode(BPlusTreeNode *curNode, uint64_t key) {
 #else
     uint64_t i;
     for (i = 0; i < curNode->keyNum; i++) {
-        if (curNode->keys[i] >= key) {
+        if (curNode->keys[i] > key) {
             break;
         }
     }
@@ -214,7 +214,7 @@ static BPlusTreeNode *LeafNodeSearch(uint64_t key) {
         if (curNode->isLeaf) {
             break;
         }
-        if (key <= curNode->keys[0]) {  // TODO:
+        if (key < curNode->keys[0]) {
             curNode = curNode->childs[0];
         } else {
             uint64_t i = BinarySearchNode(curNode, key);
@@ -317,7 +317,7 @@ static void _BPlusTree_Insert(BPlusTreeNode *node, uint64_t key, uint64_t value)
 }
 
 /**
- * BUG:顺序插入没有问题，乱序插入有问题。
+ * 
  * Performance Test:
  * Order = 1000
  * 1. isnert 10,000,000 records takes 21.510000 seconds
@@ -332,7 +332,6 @@ extern void BPlusTree_Insert(uint64_t key, uint64_t value) {
         BPlusTree_Init();
     }
     BPlusTreeNode *node = LeafNodeSearch(key);
-    // if()
     _BPlusTree_Insert(node, key, value);
 }
 
@@ -495,8 +494,6 @@ static void Merge_Right_Silbing(BPlusTreeNode *node, uint64_t key) {
 }
 
 #endif
-
-/**/
 
 // _leaf_node_left_rotate
 // args: parent , 0
