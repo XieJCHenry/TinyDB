@@ -12,4 +12,11 @@
 #define DEBUG_TEST 0
 #endif
 
+
+#define EXIT_ERROR(msg)     \
+    do {                    \
+        perror(msg);        \
+        exit(EXIT_FAILURE); \
+    } while (0)
+
 #endif
