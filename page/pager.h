@@ -91,7 +91,7 @@ const int32_t MAX_ROWS_PER_PAGE = PAGE_SIZE / ROW_SIZE;
 
 /**
  * 
- * Page 在磁盘上的结构:
+ * structure of Page when storages on disk:
  * +----------+------------------+-----------------+---------------+------+------+------+
  * | rowCount | lastModifiedTime | lastModifiedRow | lastRowOffset | row0 | row1 | rowN | 
  * +----------+------------------+-----------------+---------------+------+------+------+
@@ -108,28 +108,26 @@ typedef struct Page {
     /* rows */
     Row *rows[MAX_ROWS_PER_PAGE];
 } Page;
-
+/* pager header */
+const int32_t ROWCOUNT_SIZE         = SIZE_OF_ATTRIBUTE(Page, rowCount);
+const int32_t LASTMODIFIEDROW_SIZE  = SIZE_OF_ATTRIBUTE(Page, lastModifiedRow);
+const int32_t LASTROWOFFSET_SIZE    = SIZE_OF_ATTRIBUTE(Page, lastRowOffset);
+const int32_t LASTMODIFIEDTIME_SIZE = SIZE_OF_ATTRIBUTE(Page, lastModifiedTime);
+const int32_t PAGEHEADER_SIZE       = ROWCOUNT_SIZE + LASTMODIFIEDROW_SIZE + LASTROWOFFSET_SIZE + LASTMODIFIEDTIME_SIZE;
+/* rows */
 const int32_t ROWCOUNT_OFFSET         = 0;
-const int32_t LASTMODIFIEDROW_OFFSET  = ROWCOUNT_OFFSET + SIZE_OF_ATTRIBUTE(Page, rowCount);
-const int32_t LASTROWOFFSET_OFFSET    = LASTMODIFIEDROW_OFFSET + SIZE_OF_ATTRIBUTE(Page, lastRowOffset);
-const int32_t LASTMODIFIEDTIME_OFFSET = LASTROWOFFSET_OFFSET + SIZE_OF_ATTRIBUTE(Page, lastModifiedTime);
-const int32_t ROWS_OFFSET             = LASTMODIFIEDTIME_OFFSET + SIZE_OF_ATTRIBUTE(Page, rows);
+const int32_t LASTMODIFIEDROW_OFFSET  = ROWCOUNT_OFFSET + ROWCOUNT_SIZE;
+const int32_t LASTROWOFFSET_OFFSET    = LASTMODIFIEDROW_OFFSET + LASTMODIFIEDROW_SIZE;
+const int32_t LASTMODIFIEDTIME_OFFSET = LASTROWOFFSET_OFFSET + LASTROWOFFSET_SIZE;
+const int32_t ROWS_OFFSET             = LASTMODIFIEDTIME_OFFSET + LASTMODIFIEDTIME_SIZE;
 
 typedef struct Pager {
-    FILE *fp;         /* db file */
-    off_t fileLength; /* byte length */
+    int fd; /* file descriptor */
+    off_t fileLength;
     int32_t pageCount;
-    Page *pages[TABLE_MAX_PAGES];  // 这只是一个缓存，TODO: 后续改成循环队列
-    char file[];                   /* db file path */
+    Page *pages[TABLE_MAX_PAGES];
+    char file[];
 } Pager;
-
-// typedef struct Pager {
-//     int fd; /* file descriptor */
-//     off_t fileLength;
-//     int32_t pageCount;
-//     Page *pages[TABLE_MAX_PAGES];
-//     char file[];
-// } Pager;
 
 typedef struct Table {
     int32_t rowCount;
@@ -145,7 +143,6 @@ DBMetaData *New_MetaData(char *file);
 
 TINYDB_API Pager *New_Pager(const char *file);
 TINYDB_API void Destroy_Pager(Pager *pager);
-
 TINYDB_API PagerExecuteResult Pager_Insert(Pager *pager, Row *row);
 TINYDB_API PagerExecuteResult Pager_Select(Pager *pager, Cursor *cursor, KEY id, Row **ret);
 TINYDB_API PagerExecuteResult Pager_Update(Pager *pager, Cursor *cursor, KEY id, Row *row, Row **ret);
@@ -156,13 +153,13 @@ TINYDB_API PagerExecuteResult Pager_Delete(Pager *pager, Cursor *cursor, DBMetaD
 Row *New_Row();
 Page *New_Page();
 void CreateFileIfNotExists(const char *file);
-FILE *OpenFile(const char *file);
-PagerExecuteResult CloseFile(FILE *fp);
-// inline Row *PagerSearchCache(Pager *pager, KEY id);
+int OpenFile(const char *file);
+PagerExecuteResult CloseFile(int fd);
 inline int32_t PagerSearchPage(Pager *pager, KEY id);
 inline int32_t PageSearchRow(Page *page, KEY id);
-inline void *SerializePage(Page *page);
-inline Page *DeserializePage(void *src);
+inline void SerializePage(Page *page, void **buffer);
+inline void DeserializePage(Page **page, void *buffer);
+void PrintPage(Page *page);
 #endif
 
 #endif
