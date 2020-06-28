@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "./pager.h"
+#include "./pagerbuffer.h"
 
 const char *file = "dbfile";
 
@@ -39,10 +40,10 @@ int main(int argc, char const *argv[]) {
 void test_Open_And_Write() {
     const char *username = "xiejiachuang";
     const char *email    = "222211@gmail.com";
-    Pager *pager        = New_Pager(file);
+    Pager *pager         = New_Pager(file);
     int i;
     for (i = 0; i < 10; i++) {
-        Row *row      = New_Row();
+        Record *row   = New_Row();
         row->id       = i + 27;
         row->isOnline = i % 3 == 0;
         strcpy(row->username, username);
@@ -56,6 +57,14 @@ void test_Open_And_Write() {
 
 void test_Open_And_Read() {
     Pager *pager = New_Pager(file);
-    Pager_Select(pager, NULL, -1, NULL);  // select all and print
+    Record *row  = New_Row();
+    Cursor cursor;
+    cursor.index = 10;
+    Pager_Select(pager, &cursor, 21, &row);
+    printf("row->id=%d\n", row->id);
+    printf("row->isOnline = %d\n", row->isOnline);
+    printf("row->username = %s\n", row->username);
+    printf("row->email = %s\n", row->email);
+
     Destroy_Pager(pager);
 }

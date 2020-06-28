@@ -12,6 +12,7 @@
 #define DEBUG_TEST 0
 #endif
 
+// #define SIZE_OF_ATTRIBUTE(struct, attr) (sizeof(((struct *)0)->attr))
 
 #define EXIT_ERROR(msg)     \
     do {                    \

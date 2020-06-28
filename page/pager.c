@@ -11,12 +11,17 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+/**
+ * TODO: implement the buffer module.
+ * 
+ * 
+ */
 /* ==================== PRIVATE ==================== */
 #ifndef DEBUG_TEST
 PRIVATE
 #endif
-Row *New_Row() {
-    Row *row = (Row *)calloc(1, sizeof(Row));
+Record *New_Row() {
+    Record *row = (Record *)calloc(1, sizeof(Record));
     assert(row != NULL);
     row->id       = -1;
     row->isOnline = false;
@@ -33,17 +38,27 @@ Page *New_Page() {
     page->lastModifiedRow  = -1;
     page->lastModifiedTime = -1;
     page->lastRowOffset    = -1;
-    for (int32_t i = 0; i < MAX_ROWS_PER_PAGE; i++) {
+    for (uint32_t i = 0; i < MAX_ROWS_PER_PAGE; i++) {
         page->rows[i] = New_Row();
         assert(page->rows[i] != NULL);
     }
     return page;
 }
 
+#ifndef DEBUG_TEST
+PRIVATE
+#endif
+void Destroy_Page(Page *page) {
+    uint32_t i;
+    for (i = 0; i < page->rowCount; i++) {
+        if (page->rows[i] != NULL) {
+            free(page->rows[i]);
+            page->rows[i] = NULL;
+        }
+    }
+}
 /**
  * Size of file is always times of 4096 bytes. 
- * 
- * 
  */
 #ifndef DEBUG_TEST
 PRIVATE
@@ -106,30 +121,6 @@ PagerExecuteResult CloseFile(int fd) {
 #ifndef DEBUG_TEST
 PRIVATE
 #endif
-inline int32_t PagerSearchPage(Pager *pager, KEY id) {
-    int32_t i;
-    for (i = 0; i < pager->pageCount; i++) {
-        Page *page = pager->pages[i];
-        if (page->rows[page->rowCount - 1]->id >= id) {
-            return i;
-        }
-    }
-    return -1;
-}
-
-#ifndef DEBUG_TEST
-PRIVATE
-#endif
-inline int32_t PageSearchRow(Page *page, KEY id) {
-    int32_t i;
-    for (i = 0; i < page->rowCount && page->rows[i]->id != id; i++)
-        ;
-    return i == page->rowCount ? -1 : i;
-}
-
-#ifndef DEBUG_TEST
-PRIVATE
-#endif
 inline void SerializePage(Page *page, void **buffer) {
     assert(page != NULL);
     assert(buffer != NULL);
@@ -158,6 +149,24 @@ inline void DeserializePage(Page **page, void *buffer) {
 }
 /* ==================== PAGER_API ==================== */
 
+TINYDB_API inline uint32_t PagerSearchPage(Pager *pager, KEY id) {
+    uint32_t i;
+    for (i = 0; i < pager->pageCount; i++) {
+        Page *page = pager->cache[i];
+        if (page->rows[page->rowCount - 1]->id >= id) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+TINYDB_API inline uint32_t PageSearchRow(Page *page, KEY id) {
+    uint32_t i;
+    for (i = 0; i < page->rowCount && page->rows[i]->id != id; i++)
+        ;
+    return i == page->rowCount ? -1 : i;
+}
+
 TINYDB_API void PrintPage(Page *page) {
     if (page == NULL) {
         printf("Page is null.\n");
@@ -169,7 +178,7 @@ TINYDB_API void PrintPage(Page *page) {
     printf("page->lastRowOffset = %d\n", page->lastRowOffset);
     int i;
     for (i = 0; i < page->rowCount; i++) {
-        Row *row = page->rows[i];
+        Record *row = page->rows[i];
         printf("===================\n");
         printf("row->id = %d\n", row->id);
         printf("row->isOnline = %d\n", row->isOnline);
@@ -193,22 +202,31 @@ TINYDB_API Pager *New_Pager(const char *file) {
     pager->fileLength = lseek(fd, 0L, SEEK_END);
     pager->pageCount  = pager->fileLength / PAGE_SIZE;
     lseek(fd, 0L, SEEK_SET);  // reset fd
+    pager->cachePageNum = 0;
 
     return pager;
 }
 
 TINYDB_API void Destroy_Pager(Pager *pager) {
     assert(pager != NULL);
-
     CloseFile(pager->fd);
+    uint32_t i;
+    for (i = 0; i < pager->cachePageNum; i++) {
+        if (pager->cache[i] != NULL) {
+            Destroy_Page(pager->cache[i]);
+        }
+    }
     free(pager);
     pager = NULL;
 }
 
 /**
- * Only append
+ * Version1: Only append
+ * 
+ * Version2: All insertion are written to the cache and finally to disk by Pager_Flush() function.
+ * TODO: Now it's a problem: how to manage the alignment of a record in the file?
  */
-TINYDB_API PagerExecuteResult Pager_Insert(Pager *pager, Row *row) {
+TINYDB_API PagerExecuteResult Pager_Insert(Pager *pager, Record *row) {
     assert(row != NULL);
     // 1. locate the last page
     off_t seekIdx = pager->fileLength - PAGE_SIZE;
@@ -220,8 +238,8 @@ TINYDB_API PagerExecuteResult Pager_Insert(Pager *pager, Row *row) {
     if (read(pager->fd, buffer, PAGE_SIZE) == -1) {
         EXIT_ERROR("Fail to read 4K bytes at the end of file.\n");
     }
-    int32_t rowCount;
-    memcpy(&rowCount, buffer, sizeof(int32_t));
+    uint32_t rowCount;
+    memcpy(&rowCount, buffer, sizeof(uint32_t));
     if (rowCount < MAX_ROWS_PER_PAGE) {
         // 2.1 if rowCount < MAX_ROWS_PER_PAGE
         // insert directly
@@ -230,7 +248,7 @@ TINYDB_API PagerExecuteResult Pager_Insert(Pager *pager, Row *row) {
         page->rows[page->rowCount] = row;
         page->lastModifiedRow      = page->rowCount;
         page->lastRowOffset += ROW_SIZE;
-        page->lastModifiedTime = clock();
+        page->lastModifiedTime = time(NULL);
         page->rowCount++;
         SerializePage(page, &buffer);
         PrintPage(page);
@@ -242,13 +260,14 @@ TINYDB_API PagerExecuteResult Pager_Insert(Pager *pager, Row *row) {
             EXIT_ERROR("Error occured when write page to file.\n");
         }
         free(page);
+        page = NULL;
     } else {
         // 2.2 if rowCount == MAX_ROWS_PER_PAGE
         // create a new page
         Page *page             = New_Page();
         page->rowCount         = 1;
         page->lastModifiedRow  = 0;
-        page->lastModifiedTime = clock();
+        page->lastModifiedTime = time(NULL);
         page->rows[0]          = row;
         SerializePage(page, &buffer);
         if (lseek(pager->fd, 0L, SEEK_END) == -1) {
@@ -258,29 +277,108 @@ TINYDB_API PagerExecuteResult Pager_Insert(Pager *pager, Row *row) {
             EXIT_ERROR("Error occured when write page to file.\n");
         }
         free(page);
+        page = NULL;
     }
     return Pager_ExecuteSuccess;
 }
 
 /**
- * Select All
+ * Version 1:
+ * Select a row directly without passing through the buffer.
+ * Read the entire page form disk, then storage it to the buffer.
+ * 
+ * Version 2:
+ * The buffer is first looked up, and if there is a hit, the result returns, 
+ * or there is no hit, then perform disk io.
+ * 
  */
-TINYDB_API PagerExecuteResult Pager_Select(Pager *pager, Cursor *cursor, KEY id, Row **ret) {
-    // int32_t pageIdx, rowIdx;
-    // pageIdx = PagerSearchPage(pager, id);
-    // Page *page = pager->pages[pageIdx];
-    // rowIdx     = PageSearchRow(pager, id);
-    if (lseek(pager->fd, 0L, SEEK_SET) == -1) {
+TINYDB_API PagerExecuteResult Pager_Select(Pager *pager, Cursor *cursor, KEY id, Record **ret) {
+    uint32_t i, j;
+    // 1. search buffer
+    for (i = 0; i < pager->cachePageNum; i++) {
+        Page *page = pager->cache[i];
+        for (j = 0; j < page->rowCount; j++) {
+            // if hit, return
+            if (page->rows[j]->id == id) {
+                *ret = page->rows[i];
+                return Pager_ExecuteSuccess;
+            }
+        }
+    }
+    printf("Pager_Select: Record is not in buffer.\n");
+    // 2.1 if not, search disk, then append the new page to the buffer, here needs a replacement strategy
+    uint32_t pageOffset, byteOffset;
+    pageOffset = cursor->index / PAGE_SIZE;
+    if (lseek(pager->fd, pageOffset, SEEK_SET) == -1) {
         EXIT_ERROR("Error lseek.\n");
     }
     void *buffer = alloca(sizeof(char) * PAGE_SIZE);
-    memset(buffer, 0, PAGE_SIZE);
-    while (read(pager->fd, buffer, PAGE_SIZE) == PAGE_SIZE) {
-        Page *page = New_Page();
-        DeserializePage(&page, buffer);
-        PrintPage(page);
-        free(page);
+    if (read(pager->fd, buffer, PAGE_SIZE) == -1) {
+        perror("Error read.\n");
+        *ret = NULL;
+        return Pager_ExecuteFailed;
     }
-
+    Page *page = New_Page();
+    DeserializePage(&page, buffer);
+    for (i = 0; i < page->rowCount; i++) {
+        if (page->rows[i]->id == id) {
+            // Copying a backup to ret makes both of them independent.
+            memcpy(*ret, page->rows[i], ROW_SIZE);
+        }
+    }
+    // 2.2 append the new page to buffer or replace an obsolete page by strategy.
+    if (pager->cachePageNum < BUFFER_MAX_PAGES) {
+        pager->cache[pager->cachePageNum++] = page;
+    } else {
+        // TODO: implement the clock algorithm.
+        perror("Buffer replacement strategy is not implemented yet, so just replce the oldest page.\n");
+        Page *old       = pager->cache[0];
+        pager->cache[0] = page;
+        Destroy_Page(pager->cache[0]);
+        old = NULL;
+    }
     return Pager_ExecuteSuccess;
+}
+
+/**
+ * Update a row directly without passing through the buffer.
+ * @param ret: return the old row
+ */
+TINYDB_API PagerExecuteResult Pager_Update(Pager *pager, Cursor *cursor, Record *row, Record **ret) {
+    uint32_t byteOffset = ROW_BYTE_OFFSET(cursor->index, PAGE_SIZE, ROW_SIZE, ROWS_OFFSET);
+    if (lseek(pager->fd, byteOffset, SEEK_SET) == -1) {
+        EXIT_ERROR("Error lseek.\n");
+    }
+    // read the old row
+    if (read(pager->fd, *ret, ROW_SIZE) == -1) {
+        perror("Error read.\n");
+        *ret = NULL;
+        return Pager_ExecuteFailed;
+    }
+    // seek back and write
+    lseek(pager->fd, -ROW_SIZE, SEEK_SET);
+    if (write(pager->fd, row, ROW_SIZE) != ROW_SIZE) {
+        perror("Error write but read success.\n");
+        return Pager_ExecuteFailed;
+    }
+    return Pager_ExecuteSuccess;
+}
+
+/**
+ * Markable delete passing through the buffer.
+ * TODO: need to implement a buffer.
+ */
+TINYDB_API PagerExecuteResult Pager_Delete(Pager *pager, Cursor *cursor, DBMetaData *metaData, Record **ret) {
+    *ret = NULL;
+    perror("Pager_Delete is always return Pager_ExecuteFailed.\n");
+    return Pager_ExecuteFailed;
+}
+
+/**
+ * flush pages storage in buffer to disk
+ * 
+ */
+TINYDB_API PagerExecuteResult Pager_Flush(Pager *pager) {
+    perror("Pager_Flush is not implemented yet.\n");
+    return Pager_ExecuteFailed;
 }
