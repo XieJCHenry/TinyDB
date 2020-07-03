@@ -11,20 +11,17 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-/**
- * TODO: implement the buffer module.
- * 
- * 
- */
-/* ==================== PRIVATE ==================== */
+// #include "../includes/global.h"
+
 #ifndef DEBUG_TEST
 PRIVATE
 #endif
-Record *New_Row() {
-    Record *row = (Record *)calloc(1, sizeof(Record));
+Row *New_Row() {
+    Row *row = (Row *)calloc(1, sizeof(Row));
     assert(row != NULL);
     row->id       = -1;
     row->isOnline = false;
+    row->next     = -1;
     return row;
 }
 
@@ -34,32 +31,27 @@ PRIVATE
 Page *New_Page() {
     Page *page = (Page *)calloc(1, sizeof(Page));
     assert(page != NULL);
-    page->rowCount         = 0;
-    page->lastModifiedRow  = -1;
-    page->lastModifiedTime = -1;
-    page->lastRowOffset    = -1;
-    for (uint32_t i = 0; i < MAX_ROWS_PER_PAGE; i++) {
+    page->rowCount        = 0;
+    page->lastModifiedRow = -1;
+    page->lastReadRow     = -1;
+    page->lastModifyTime  = -1;
+    page->lastReadTime    = -1;
+    page->firstFree       = -1;
+    page->firstUse        = -1;
+    int32_t i;
+    for (i = 0; i < MAX_ROWS_PER_PAGE; i++) {
         page->rows[i] = New_Row();
-        assert(page->rows[i] != NULL);
     }
+
+    // 初始化静态链表
+    page->firstUse = 0;
+    for (i = 0; i < MAX_ROWS_PER_PAGE; i++) {
+        page->rows[i]->next = i + 1;
+    }
+    page->rows[i - 1]->next = -1;
     return page;
 }
 
-#ifndef DEBUG_TEST
-PRIVATE
-#endif
-void Destroy_Page(Page *page) {
-    uint32_t i;
-    for (i = 0; i < page->rowCount; i++) {
-        if (page->rows[i] != NULL) {
-            free(page->rows[i]);
-            page->rows[i] = NULL;
-        }
-    }
-}
-/**
- * Size of file is always times of 4096 bytes. 
- */
 #ifndef DEBUG_TEST
 PRIVATE
 #endif
@@ -98,9 +90,9 @@ int OpenFile(const char *file) {
     assert(len > 0 && len < MAX_DB_FILE_LENGTH);
 
     CreateFileIfNotExists(file);
-    int fd = open(file, O_RDWR);  // O_RDWR，以读写模式打开；O_WRONLY，以只写模式打开；O_RDONLY，以只读模式打开
-    if (fd == -1) {
-        EXIT_ERROR("Must provide an existed file.\n");
+    int fd = open(file, O_RDWR);
+    if (open(file, O_RDWR) == -1) {
+        EXIT_ERROR("Fail to open file.\n");
     }
     return fd;
 }
@@ -108,86 +100,132 @@ int OpenFile(const char *file) {
 #ifndef DEBUG_TEST
 PRIVATE
 #endif
-PagerExecuteResult CloseFile(int fd) {
-    if (fd == -1) {
-        EXIT_ERROR("Must provide an existed file.\n");
-    }
-    if (close(fd) == -1) {
-        EXIT_ERROR("Failed to close file.\n");
-    }
-    return Pager_ExecuteSuccess;
-}
-
-#ifndef DEBUG_TEST
-PRIVATE
-#endif
-inline void SerializePage(Page *page, void **buffer) {
-    assert(page != NULL);
-    assert(buffer != NULL);
-    void *bufptr = *buffer;
-    memcpy(bufptr, page, sizeof(char) * PAGEHEADER_SIZE);
-    for (int i = 0; i < page->rowCount; i++) {
-        memcpy(bufptr + PAGEHEADER_SIZE + i * ROW_SIZE, page->rows[i], ROW_SIZE);
+void CloseFile(int fd) {
+    if (close(fd) == 0) {
+        printf("Success to close file.\n");
+    } else {
+        perror("Failed to close file.\n");
     }
 }
 
 #ifndef DEBUG_TEST
 PRIVATE
 #endif
-inline void DeserializePage(Page **page, void *buffer) {
-    Page *p = *page;
-    /* deserialize page header */
-    // memcpy(&(p->rowCount), buffer, ROWCOUNT_SIZE);
-    // memcpy(&(p->lastModifiedRow), buffer + LASTMODIFIEDROW_OFFSET, LASTMODIFIEDROW_SIZE);
-    // memcpy(&(p->lastRowOffset), buffer + LASTROWOFFSET_OFFSET, LASTROWOFFSET_SIZE);
-    // memcpy(&(p->lastModifiedTime), buffer + LASTMODIFIEDTIME_OFFSET, LASTMODIFIEDTIME_SIZE);
-    memcpy(p, buffer, PAGEHEADER_SIZE);
-    /* deserialize page rows */
-    for (int i = 0; i < p->rowCount; i++) {
-        memcpy(p->rows[i], buffer + ROWS_OFFSET + i * ROW_SIZE, ROW_SIZE);
-    }
-}
-/* ==================== PAGER_API ==================== */
-
-TINYDB_API inline uint32_t PagerSearchPage(Pager *pager, KEY id) {
-    uint32_t i;
-    for (i = 0; i < pager->pageCount; i++) {
-        Page *page = pager->cache[i];
-        if (page->rows[page->rowCount - 1]->id >= id) {
-            return i;
-        }
-    }
+inline int32_t PagerSearchPage(Pager *pager, KEY id) {
     return -1;
 }
 
-TINYDB_API inline uint32_t PageSearchRow(Page *page, KEY id) {
-    uint32_t i;
+#ifndef DEBUG_TEST
+PRIVATE
+#endif
+inline int32_t PageSearchRow(Page *page, KEY id) {
+    int32_t i;
     for (i = 0; i < page->rowCount && page->rows[i]->id != id; i++)
         ;
     return i == page->rowCount ? -1 : i;
 }
 
-TINYDB_API void PrintPage(Page *page) {
-    if (page == NULL) {
-        printf("Page is null.\n");
-    }
-    printf("----------------------------------------\n");
-    printf("page->rowCount = %d\n", page->rowCount);
-    printf("page->lastModifiedRow = %d\n", page->lastModifiedRow);
-    printf("page->lastModifiedTime = %ld\n", page->lastModifiedTime);
-    printf("page->lastRowOffset = %d\n", page->lastRowOffset);
-    int i;
+inline void SerializePage(Page *page, void *buffer) {
+    memcpy(buffer, page, PAGE_HEADER_SIZE);
+    int32_t i;
     for (i = 0; i < page->rowCount; i++) {
-        Record *row = page->rows[i];
-        printf("===================\n");
-        printf("row->id = %d\n", row->id);
-        printf("row->isOnline = %d\n", row->isOnline);
-        printf("row->username = %s\n", row->username);
-        printf("row->email = %s\n", row->email);
-        printf("===================\n");
+        memcpy(buffer + PAGE_HEADER_SIZE + i * ROW_SIZE, page->rows[i], ROW_SIZE);
     }
-    printf("----------------------------------------\n");
 }
+
+/**
+ * 从指定位置读取一个Page大小的数据
+ */
+#ifndef DEBUG_TEST
+PRIVATE
+#endif
+inline void DeserializePage(Page *page, void *buffer) {
+    memcpy(page, buffer, PAGE_HEADER_SIZE);
+    int32_t i;
+    for (i = 0; i < page->rowCount; i++) {
+        memcpy(page->rows[i], buffer + PAGE_HEADER_SIZE + i * ROW_SIZE, ROW_SIZE);
+    }
+}
+
+/*************************************************************/
+// 静态链表
+inline int32_t StlList_MallocNode(Page *page) {
+    int32_t i = page->firstUse;
+    if (page->firstUse != -1) {
+        page->firstUse = page->rows[i]->next;
+    }
+    return i;
+}
+
+inline void StlList_FreeNode(Page *page, int32_t k) {
+    page->rows[k]->next = page->firstFree;
+    page->firstFree     = k;
+}
+
+inline bool StlList_Insert(Page *page, Row *row) {
+    if (page->firstFree == -1) {
+        return false;
+    }
+    int32_t prev, ptr;
+    ptr    = page->firstUse;
+    KEY id = row->id;
+    while (ptr != -1 && page->rows[ptr]->id < id) {
+        prev = ptr;
+        ptr  = page->rows[ptr]->next;
+    }
+    int32_t i   = StlList_MallocNode(page);
+    Row *r      = page->rows[i];
+    r->id       = row->id;
+    r->isOnline = row->isOnline;
+    strcpy(r->username, row->username);
+    strcpy(r->email, row->email);
+
+    // NOTE: 要先判断“插入在头部”，再判断“末尾”，因为firstUse=-1
+    // 如果是一个空表插入新值，先判断末尾将会导致错误.
+    if (ptr == page->firstUse) {  // 插入在头部
+        page->rows[i]->next = page->firstUse;
+        page->firstUse      = i;
+    } else if (ptr == -1) {  // 插入在末尾
+        page->rows[prev]->next = i;
+        page->rows[i]->next    = -1;
+    } else {  // 插入在中间
+        page->rows[prev]->next = i;
+        page->rows[i]->next    = ptr;
+    }
+    return true;
+}
+
+inline bool StlList_Delete(Page *page, KEY id, Row **ret) {
+    if (page->firstUse == -1) {
+        return false;
+    }
+    int32_t prev, ptr;
+    ptr = page->firstUse;
+    while (ptr != -1 && page->rows[ptr]->id != id) {
+        prev = ptr;
+        ptr  = page->rows[ptr]->next;
+    }
+    if (ptr == -1) {
+        return true;
+    } else if (ptr == page->firstUse) {
+        page->firstUse = page->rows[ptr]->next;
+    } else {
+        page->rows[prev]->next = page->rows[ptr]->next;
+    }
+    *ret = page->rows[ptr];
+    StlList_FreeNode(page, ptr);
+    return true;
+}
+
+inline int32_t StlList_Select(Page *page, KEY id) {
+    int32_t ptr = page->firstUse;
+    while (ptr != -1 && page->rows[ptr]->id != id) {
+        ptr = page->rows[ptr]->next;
+    }
+    return ptr;
+}
+
+/*************************************************************/
 
 /**
  * @param file: storage data
@@ -199,186 +237,277 @@ TINYDB_API Pager *New_Pager(const char *file) {
 
     strcpy(pager->file, file);
     pager->fd         = fd;
-    pager->fileLength = lseek(fd, 0L, SEEK_END);
-    pager->pageCount  = pager->fileLength / PAGE_SIZE;
-    lseek(fd, 0L, SEEK_SET);  // reset fd
-    pager->cachePageNum = 0;
+    off_t ret         = lseek(fd, 0L, SEEK_END);  // fseek doesn't return its position
+    pager->fileLength = ret;
+    pager->pageCount  = ret / PAGE_SIZE;
 
     return pager;
 }
 
 TINYDB_API void Destroy_Pager(Pager *pager) {
     assert(pager != NULL);
+
     CloseFile(pager->fd);
-    uint32_t i;
-    for (i = 0; i < pager->cachePageNum; i++) {
-        if (pager->cache[i] != NULL) {
-            Destroy_Page(pager->cache[i]);
-        }
-    }
     free(pager);
     pager = NULL;
 }
 
 /**
- * Version1: Only append
+ * Only append.
  * 
- * Version2: All insertion are written to the cache and finally to disk by Pager_Flush() function.
- * TODO: Now it's a problem: how to manage the alignment of a record in the file?
+ * Size of the file is always times of 4096.
+ * TODO: 对于溢出的记录，通常结合“借用后继结点的空间”和“设置溢出块”两种方式。现在均不采用。
+ * FIXME: TEST
  */
-TINYDB_API PagerExecuteResult Pager_Insert(Pager *pager, Record *row) {
-    assert(row != NULL);
-    // 1. locate the last page
-    off_t seekIdx = pager->fileLength - PAGE_SIZE;
-    if (lseek(pager->fd, seekIdx, SEEK_SET) == -1) {
-        EXIT_ERROR("Error lseek.\n");
-    }
-    // 2. 读取该page的rowCount
+TINYDB_API PagerExecuteResult Pager_Insert(Pager *pager, Row *row) {
+    int fd       = pager->fd;
     void *buffer = alloca(sizeof(char) * PAGE_SIZE);
-    if (read(pager->fd, buffer, PAGE_SIZE) == -1) {
-        EXIT_ERROR("Fail to read 4K bytes at the end of file.\n");
+    Page *page   = New_Page();
+    // seek to last page.
+    lseek(fd, 0L, SEEK_SET);
+    ssize_t readRet = read(fd, buffer, PAGE_SIZE);
+    printf("readRet = %ld\n", readRet);
+    while (readRet == PAGE_SIZE) {
+        DeserializePage(page, buffer);
+        if (page->rowCount < MAX_ROWS_PER_PAGE) {
+            // 判断是否应该插入当前页面：如果id > 当前页面最大记录的id，且也大于下一页某一记录的id，
+            // 这样插入后将导致页面记录乱序。因此需要判断。
+            uint64_t end = page->rowCount == 0 ? 0 : page->rowCount - 1;
+            // if (page->rowCount == 0 || page->rows[end]->id >= row->id) {
+            if (page->rows[end]->id == row->id) {
+                printf("id = %d is already exists.\n", row->id);
+                free(page);
+                return Pager_ExecuteFailed;
+            }
+            // 1. 先将row拷贝到末尾
+            Row *r      = page->rows[page->rowCount];
+            r->id       = row->id;
+            r->isOnline = row->isOnline;
+            // r->del      = row->del;
+            memcpy(r->username, row->username, sizeof(char) * USERNAME_SIZE);
+            memcpy(r->email, row->email, sizeof(char) * EMAIL_SIZE);
+            // 2. 再修改next,prev指针
+            int64_t ptr = page->firstUse, prev;
+            Row *cur;
+            while (ptr >= 0 && ptr < MAX_ROWS_PER_PAGE) {
+                cur = page->rows[ptr];
+                if (cur->id > row->id) {
+                    break;
+                }
+                prev = ptr;
+                ptr  = cur->next;
+            }
+            if (ptr < 0) {  // 说明链表为空，或者达到末尾
+                if (page->rowCount == 0) {
+                    page->firstUse = 0;
+                    r->next        = -1;
+                } else {
+                    r->next                = page->rows[prev]->next;
+                    page->rows[prev]->next = page->rowCount;
+                }
+            } else {
+                // 在中间插入
+                r->next                = ptr;
+                page->rows[prev]->next = page->rowCount;
+            }
+            page->rowCount++;
+            SerializePage(page, buffer);
+            lseek(fd, -PAGE_SIZE, SEEK_CUR);
+            write(fd, buffer, PAGE_SIZE);
+            printf("Insert row successfully, id = %d\n", row->id);
+            free(page);
+            return Pager_ExecuteSuccess;
+            // }
+        }
+        readRet = read(fd, buffer, PAGE_SIZE);
     }
-    uint32_t rowCount;
-    memcpy(&rowCount, buffer, sizeof(uint32_t));
-    if (rowCount < MAX_ROWS_PER_PAGE) {
-        // 2.1 if rowCount < MAX_ROWS_PER_PAGE
-        // insert directly
-        Page *page = New_Page();
-        DeserializePage(&page, buffer);
-        page->rows[page->rowCount] = row;
-        page->lastModifiedRow      = page->rowCount;
-        page->lastRowOffset += ROW_SIZE;
-        page->lastModifiedTime = time(NULL);
-        page->rowCount++;
-        SerializePage(page, &buffer);
-        PrintPage(page);
-        // write to file
-        if (lseek(pager->fd, seekIdx, SEEK_SET) == -1) {
-            EXIT_ERROR("Error lseek.\n");
-        }
-        if (write(pager->fd, buffer, PAGE_SIZE) != PAGE_SIZE) {
-            EXIT_ERROR("Error occured when write page to file.\n");
-        }
-        free(page);
-        page = NULL;
-    } else {
-        // 2.2 if rowCount == MAX_ROWS_PER_PAGE
-        // create a new page
-        Page *page             = New_Page();
-        page->rowCount         = 1;
-        page->lastModifiedRow  = 0;
-        page->lastModifiedTime = time(NULL);
-        page->rows[0]          = row;
-        SerializePage(page, &buffer);
-        if (lseek(pager->fd, 0L, SEEK_END) == -1) {
-            EXIT_ERROR("Error lseek.\n");
-        }
-        if (write(pager->fd, buffer, PAGE_SIZE) != PAGE_SIZE) {
-            EXIT_ERROR("Error occured when write page to file.\n");
-        }
-        free(page);
-        page = NULL;
-    }
+    // 执行到这里时，需要在文件末尾开辟新的页，再添加page。
+    page->rowCount = 0;
+    Row *r         = page->rows[page->rowCount];
+    r->id          = row->id;
+    r->isOnline    = row->isOnline;
+    // r->del         = row->del;
+    memcpy(r->username, row->username, sizeof(char) * USERNAME_SIZE);
+    memcpy(r->email, row->email, sizeof(char) * EMAIL_SIZE);
+    page->lastModifiedRow = 0;
+    page->rowCount++;
+    page->lastModifyTime = time(NULL);
+    SerializePage(page, buffer);
+    lseek(fd, 0L, SEEK_END);
+    write(fd, buffer, PAGE_SIZE);
+    printf("Append new row at the end of file, id = %d\n", row->id);
+    free(page);
     return Pager_ExecuteSuccess;
 }
 
-/**
- * Version 1:
- * Select a row directly without passing through the buffer.
- * Read the entire page form disk, then storage it to the buffer.
- * 
- * Version 2:
- * The buffer is first looked up, and if there is a hit, the result returns, 
- * or there is no hit, then perform disk io.
- * 
- */
-TINYDB_API PagerExecuteResult Pager_Select(Pager *pager, Cursor *cursor, KEY id, Record **ret) {
-    uint32_t i, j;
-    // 1. search buffer
-    for (i = 0; i < pager->cachePageNum; i++) {
-        Page *page = pager->cache[i];
-        for (j = 0; j < page->rowCount; j++) {
-            // if hit, return
-            if (page->rows[j]->id == id) {
-                *ret = page->rows[i];
+TINYDB_API PagerExecuteResult Pager_Insert2(Pager *pager, Row *row) {
+    KEY id       = row->id;
+    int fd       = pager->fd;
+    void *buffer = alloca(sizeof(char) * PAGE_SIZE);
+    Page *page   = New_Page();
+    lseek(fd, 0L, SEEK_SET);
+    ssize_t readRet = read(fd, buffer, PAGE_SIZE);
+    printf("readRet = %ld\n", readRet);
+    bool flag = false;
+    while (readRet == PAGE_SIZE) {
+        DeserializePage(page, buffer);
+        // 判断是否应该插入到当前页面
+        // 如果不是，则后移
+        if (page->rowCount < MAX_ROWS_PER_PAGE) {
+            if (page->rowCount == 0 || page->rows[page->rowCount - 1]->id > id) {
+                StlList_Insert(page, row);
+                flag = true;
+                break;
+            }
+        }
+        readRet = read(fd, buffer, PAGE_SIZE);
+    }
+    if (flag) {
+        // 将页面写入到文件中
+        page->lastModifiedRow = page->rowCount - 1;
+        page->lastModifyTime  = time(NULL);
+        page->rowCount++;
+        SerializePage(page, buffer);
+        if (lseek(fd, -PAGE_SIZE, SEEK_CUR) == -1) {
+            perror("Failed to seek back : -PAGE_SIZE\n");
+        }
+        if (write(fd, buffer, PAGE_SIZE) != PAGE_SIZE) {
+            perror("Failed to write a page.\n");
+        }
+        printf("Insert row successfully, id = %d\n", id);
+    } else {
+        // 如果执行到这里，说明记录应该插入到一个新page
+        page->rowCount = 0;
+        Row *r         = page->rows[page->rowCount];
+        r->id          = row->id;
+        r->isOnline    = row->isOnline;
+        strcpy(r->username, row->username);
+        strcpy(r->email, row->email);
+        page->lastModifiedRow = 0;
+        page->rowCount++;
+        page->lastModifyTime = time(NULL);
+        SerializePage(page, buffer);
+        lseek(fd, 0L, SEEK_END);
+        if (write(fd, buffer, PAGE_SIZE) != PAGE_SIZE) {
+            perror("Failed to write a page.\n");
+        }
+        printf("Append new row at the end of file, id = %d\n", row->id);
+    }
+    free(page);
+    return Pager_ExecuteSuccess;
+}
+
+TINYDB_API PagerExecuteResult Pager_Select(Pager *pager, KEY id, Row **ret) {
+    int fd       = pager->fd;
+    void *buffer = alloca(sizeof(char) * PAGE_SIZE);
+    Page *page   = New_Page();
+    lseek(fd, 0L, SEEK_SET);
+    ssize_t readRet = read(fd, buffer, PAGE_SIZE);
+    printf("readRet = %ld\n", readRet);
+    while (readRet == PAGE_SIZE) {
+        DeserializePage(page, buffer);
+        int32_t ptr = page->firstUse, i;
+        if (ptr >= 0 && ptr < MAX_ROWS_PER_PAGE) {
+            i = StlList_Select(page, id);
+            if (i != -1) {
+                if (*ret == NULL) {
+                    *ret = New_Row();
+                }
+                memcpy(*ret, page->rows[i], ROW_SIZE);
+                page->lastReadTime = time(NULL);
+                page->lastReadRow  = i;
+                printf("Success to select row = %d\n", id);
+                free(page);
                 return Pager_ExecuteSuccess;
             }
         }
+        readRet = read(fd, buffer, sizeof(char) * PAGE_SIZE);
     }
-    printf("Pager_Select: Record is not in buffer.\n");
-    // 2.1 if not, search disk, then append the new page to the buffer, here needs a replacement strategy
-    uint32_t pageOffset, byteOffset;
-    pageOffset = cursor->index / PAGE_SIZE;
-    if (lseek(pager->fd, pageOffset, SEEK_SET) == -1) {
-        EXIT_ERROR("Error lseek.\n");
-    }
-    void *buffer = alloca(sizeof(char) * PAGE_SIZE);
-    if (read(pager->fd, buffer, PAGE_SIZE) == -1) {
-        perror("Error read.\n");
-        *ret = NULL;
-        return Pager_ExecuteFailed;
-    }
-    Page *page = New_Page();
-    DeserializePage(&page, buffer);
-    for (i = 0; i < page->rowCount; i++) {
-        if (page->rows[i]->id == id) {
-            // Copying a backup to ret makes both of them independent.
-            memcpy(*ret, page->rows[i], ROW_SIZE);
-        }
-    }
-    // 2.2 append the new page to buffer or replace an obsolete page by strategy.
-    if (pager->cachePageNum < BUFFER_MAX_PAGES) {
-        pager->cache[pager->cachePageNum++] = page;
-    } else {
-        // TODO: implement the clock algorithm.
-        perror("Buffer replacement strategy is not implemented yet, so just replce the oldest page.\n");
-        Page *old       = pager->cache[0];
-        pager->cache[0] = page;
-        Destroy_Page(pager->cache[0]);
-        old = NULL;
-    }
-    return Pager_ExecuteSuccess;
-}
-
-/**
- * Update a row directly without passing through the buffer.
- * @param ret: return the old row
- */
-TINYDB_API PagerExecuteResult Pager_Update(Pager *pager, Cursor *cursor, Record *row, Record **ret) {
-    uint32_t byteOffset = ROW_BYTE_OFFSET(cursor->index, PAGE_SIZE, ROW_SIZE, ROWS_OFFSET);
-    if (lseek(pager->fd, byteOffset, SEEK_SET) == -1) {
-        EXIT_ERROR("Error lseek.\n");
-    }
-    // read the old row
-    if (read(pager->fd, *ret, ROW_SIZE) == -1) {
-        perror("Error read.\n");
-        *ret = NULL;
-        return Pager_ExecuteFailed;
-    }
-    // seek back and write
-    lseek(pager->fd, -ROW_SIZE, SEEK_SET);
-    if (write(pager->fd, row, ROW_SIZE) != ROW_SIZE) {
-        perror("Error write but read success.\n");
-        return Pager_ExecuteFailed;
-    }
-    return Pager_ExecuteSuccess;
-}
-
-/**
- * Markable delete passing through the buffer.
- * TODO: need to implement a buffer.
- */
-TINYDB_API PagerExecuteResult Pager_Delete(Pager *pager, Cursor *cursor, DBMetaData *metaData, Record **ret) {
-    *ret = NULL;
-    perror("Pager_Delete is always return Pager_ExecuteFailed.\n");
+    free(page);
     return Pager_ExecuteFailed;
 }
 
 /**
- * flush pages storage in buffer to disk
- * 
  */
-TINYDB_API PagerExecuteResult Pager_Flush(Pager *pager) {
-    perror("Pager_Flush is not implemented yet.\n");
+TINYDB_API PagerExecuteResult Pager_Update(Pager *pager, KEY id, Row *row, Row **ret) {
+    int fd       = pager->fd;
+    void *buffer = alloca(sizeof(char) * PAGE_SIZE);
+    Page *page   = New_Page();
+    lseek(fd, 0L, SEEK_SET);
+    ssize_t readRet = read(fd, buffer, PAGE_SIZE);
+    bool flag       = false;
+    int32_t i;
+    while (readRet == PAGE_SIZE) {
+        DeserializePage(page, buffer);
+        i = StlList_Select(page, id);
+        if (i != -1) {
+            if (*ret == NULL) {
+                *ret = New_Row();
+            }
+            memcpy(*ret, page->rows[i], ROW_SIZE);
+            Row *r      = page->rows[i];
+            r->isOnline = row->isOnline;
+            if (!strcmp(r->email, row->email)) {
+                strcpy(r->email, row->email);
+            }
+            if (!strcmp(r->username, row->username)) {
+                strcpy(r->username, row->username);
+            }
+            flag = true;
+            break;
+        }
+        readRet = read(fd, buffer, PAGE_SIZE);
+    }
+    if (i == -1) {
+        printf("row is not exists, id = %d\n", id);
+        free(page);
+        return Pager_ExecuteFailed;
+    }
+    if (flag) {
+        page->lastModifiedRow = i;
+        page->lastModifyTime  = time(NULL);
+        SerializePage(page, buffer);
+        lseek(fd, -PAGE_SIZE, SEEK_CUR);
+        if (write(fd, buffer, PAGE_SIZE) != PAGE_SIZE) {
+            perror("Failed to write a page.\n");
+        }
+        printf("Success to update row = %d\n", id);
+        free(page);
+        return Pager_ExecuteSuccess;
+    } else {
+        printf("row is not exists, id = %d\n", id);
+        return Pager_ExecuteFailed;
+    }
+}
+
+TINYDB_API PagerExecuteResult Pager_Delete(Pager *pager, KEY id, Row **ret) {
+    int fd       = pager->fd;
+    void *buffer = alloca(sizeof(char) * PAGE_SIZE);
+    Page *page   = New_Page();
+    lseek(fd, 0L, SEEK_SET);
+    ssize_t readRet = read(fd, buffer, PAGE_SIZE);
+    while (readRet == PAGE_SIZE) {
+        DeserializePage(page, buffer);
+        Row *row = NULL;
+        if (StlList_Delete(page, id, &row)) {
+            if (*ret == NULL) {
+                *ret = New_Row();
+            }
+            if (row != NULL) {
+                memcpy(ret, row, ROW_SIZE);
+            }
+            page->rowCount--;
+            page->lastModifyTime = time(NULL);
+            SerializePage(page, buffer);
+            lseek(fd, -PAGE_SIZE, SEEK_CUR);
+            if (write(fd, buffer, PAGE_SIZE) != PAGE_SIZE) {
+                perror("Failed to write a page.\n");
+            }
+            free(page);
+            return Pager_ExecuteSuccess;
+        }
+        readRet = read(fd, buffer, PAGE_SIZE);
+    }
+    free(page);
     return Pager_ExecuteFailed;
 }

@@ -5,7 +5,7 @@
 #include <stdlib.h>
 #include <time.h>
 
-#include "./arutls.h"
+#include "./artuls.h"
 
 #define CHECK_IF_POSITIVE(digit)                  \
     do {                                          \

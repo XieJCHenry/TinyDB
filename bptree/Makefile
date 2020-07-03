@@ -8,8 +8,8 @@ main: main.o bplustree.o artuls.o
 bplustree.o: bplustree.c
 	$(CC) $(CFLAGS) $(OPTIMIZE) -c bplustree.c
 
-artuls.o: utils/artuls.c
-	$(CC) $(CFLAGS) $(OPTIMIZE) -c utils/artuls.c
+artuls.o: ../utils/artuls.c
+	$(CC) $(CFLAGS) $(OPTIMIZE) -c ../utils/artuls.c
 
 main.o: main.c
 	$(CC) $(CFLAGS) $(OPTIMIZE) -c main.c
