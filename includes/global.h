@@ -6,13 +6,14 @@
 
 #define DEBUG 1
 
-#ifdef DEBUG
-#define DEBUG_TEST 1
-#else
-#define DEBUG_TEST 0
-#endif
+// #ifdef DEBUG
+// #define DEBUG_TEST 1
+// #else
+// #define DEBUG_TEST 0
+// #endif
 
-// #define SIZE_OF_ATTRIBUTE(struct, attr) (sizeof(((struct *)0)->attr))
+#define SIZE_OF_ATTRIBUTE(struct, attr) (sizeof(((struct *)0)->attr))
+#define OFFSET_OF_ATTRIBUTE(struct, attr) ((size_t) & (((struct *)0)->attr))
 
 #define EXIT_ERROR(msg)     \
     do {                    \

@@ -1,11 +1,11 @@
 #include "./file.h"
-#include<assert.h>
+
+#include <assert.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
-// #include <sys/types.h>
 #include <unistd.h>
 
 /**
@@ -55,4 +55,8 @@ void CloseFile(int fd) {
     if (close(fd) == -1) {
         EXIT_ERROR("Failed to close file.\n");
     }
+}
+
+off_t FileLength(int fd) {
+    return lseek(fd, 0L, SEEK_END);
 }
